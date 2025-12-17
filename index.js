@@ -1,7 +1,26 @@
 const http = require('http');
-const url = require('url');
 const redis = require('redis');
 require('dotenv').config();
+
+// Pre-stringify static responses
+const RESPONSES = {
+    missingKey: JSON.stringify({ error: 'Missing required parameter: key' }),
+    missingKeyValue: JSON.stringify({ error: 'Missing required parameters: key, value' }),
+    keyNotFound: JSON.stringify({ error: 'Key not found' }),
+    notFound: JSON.stringify({ error: 'Not found' }),
+    readError: JSON.stringify({ error: 'Failed to read data' }),
+    writeError: JSON.stringify({ error: 'Failed to write data' }),
+    serverError: JSON.stringify({ error: 'Internal server error' }),
+    writeSuccess: JSON.stringify({ success: true, message: 'Data written successfully' })
+};
+
+// Common headers
+const CORS_HEADERS = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Content-Type': 'application/json'
+};
 
 // Redis Configuration
 const redisClient = redis.createClient({
@@ -21,109 +40,81 @@ redisClient.on('connect', () => {
     console.log('Connected to Redis');
 });
 
-// Connect to Redis
 redisClient.connect();
+
+// Helper to collect request body
+function collectBody(req) {
+    return new Promise((resolve) => {
+        const chunks = [];
+        req.on('data', chunk => chunks.push(chunk));
+        req.on('end', () => resolve(Buffer.concat(chunks).toString()));
+    });
+}
 
 // HTTP Server
 const server = http.createServer(async (req, res) => {
-    const parsedUrl = url.parse(req.url, true);
-    const pathname = parsedUrl.pathname;
-    const query = parsedUrl.query;
-
-    // Set CORS headers
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-    res.setHeader('Content-Type', 'application/json');
+    const pathname = req.url.split('?')[0];
 
     if (req.method === 'OPTIONS') {
-        res.writeHead(200);
+        res.writeHead(200, CORS_HEADERS);
         res.end();
         return;
     }
 
+    res.writeHead(200, CORS_HEADERS);
+
     try {
         if (pathname === '/read' && req.method === 'POST') {
-            // Read data from Redis
-            let body = '';
-            req.on('data', chunk => {
-                body += chunk.toString();
-            });
-            
-            req.on('end', async () => {
-                try {
-                    const { key } = JSON.parse(body);
+            const body = await collectBody(req);
+            const { key } = JSON.parse(body);
 
-                    if (!key) {
-                        res.writeHead(400);
-                        res.end(JSON.stringify({ error: 'Missing required parameter: key' }));
-                        return;
-                    }
+            if (!key) {
+                res.statusCode = 400;
+                res.end(RESPONSES.missingKey);
+                return;
+            }
 
-                    const value = await redisClient.get(key);
+            const value = await redisClient.get(key);
 
-                    if (value === null) {
-                        console.log(`[READ] Key not found: ${key}`);
-                        res.writeHead(404);
-                        res.end(JSON.stringify({ error: 'Key not found' }));
-                    } else {
-                        console.log(`[READ] ${key} = ${value}`);
-                        res.writeHead(200);
-                        res.end(JSON.stringify({ success: true, key, value }));
-                    }
-                } catch (error) {
-                    console.error('Redis error:', error);
-                    res.writeHead(500);
-                    res.end(JSON.stringify({ error: 'Failed to read data' }));
-                }
-            });
+            if (value === null) {
+                console.log(`[READ] Key not found: ${key}`);
+                res.statusCode = 404;
+                res.end(RESPONSES.keyNotFound);
+            } else {
+                console.log(`[READ] ${key} = ${value}`);
+                res.end(JSON.stringify({ success: true, key, value }));
+            }
 
         } else if (pathname === '/write' && req.method === 'POST') {
-            // Write data to Redis
-            let body = '';
-            req.on('data', chunk => {
-                body += chunk.toString();
-            });
-            
-            req.on('end', async () => {
-                try {
-                    const { key, value } = JSON.parse(body);
+            const body = await collectBody(req);
+            const { key, value } = JSON.parse(body);
 
-                    if (!key || !value) {
-                        res.writeHead(400);
-                        res.end(JSON.stringify({ error: 'Missing required parameters: key, value' }));
-                        return;
-                    }
+            if (!key || !value) {
+                res.statusCode = 400;
+                res.end(RESPONSES.missingKeyValue);
+                return;
+            }
 
-                    await redisClient.set(key, value);
+            await redisClient.set(key, value);
 
-                    console.log(`[WRITE] ${key} = ${value}`);
-                    res.writeHead(200);
-                    res.end(JSON.stringify({ success: true, message: 'Data written successfully' }));
-                } catch (error) {
-                    console.error('Redis error:', error);
-                    res.writeHead(500);
-                    res.end(JSON.stringify({ error: 'Failed to write data' }));
-                }
-            });
+            console.log(`[WRITE] ${key} = ${value}`);
+            res.end(RESPONSES.writeSuccess);
 
         } else {
-            res.writeHead(404);
-            res.end(JSON.stringify({ error: 'Not found' }));
+            res.statusCode = 404;
+            res.end(RESPONSES.notFound);
         }
 
     } catch (error) {
         console.error('Server error:', error);
-        res.writeHead(500);
-        res.end(JSON.stringify({ error: 'Internal server error' }));
+        res.statusCode = 500;
+        res.end(RESPONSES.serverError);
     }
 });
 
 const PORT = process.argv[2] || process.env.PORT || 3000;
 server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
-    console.log(`Read data: http://localhost:${PORT}/read?key=YOUR_KEY`);
-    console.log(`Write data: http://localhost:${PORT}/write?key=YOUR_KEY&value=YOUR_VALUE`);
 });
 
 // Graceful shutdown
