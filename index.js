@@ -2,6 +2,8 @@ const http = require('http');
 const redis = require('redis');
 require('dotenv').config();
 
+const DEBUG = process.env.DEBUG === 'true';
+
 // Pre-stringify static responses
 const RESPONSES = {
     missingKey: JSON.stringify({ error: 'Missing required parameter: key' }),
@@ -77,11 +79,11 @@ const server = http.createServer(async (req, res) => {
             const value = await redisClient.get(key);
 
             if (value === null) {
-                console.log(`[READ] Key not found: ${key}`);
+                DEBUG && console.log(`[READ] Key not found: ${key}`);
                 res.statusCode = 404;
                 res.end(RESPONSES.keyNotFound);
             } else {
-                console.log(`[READ] ${key} = ${value}`);
+                DEBUG && console.log(`[READ] ${key} = ${value}`);
                 res.end(JSON.stringify({ success: true, key, value }));
             }
 
@@ -97,7 +99,7 @@ const server = http.createServer(async (req, res) => {
 
             await redisClient.set(key, value);
 
-            console.log(`[WRITE] ${key} = ${value}`);
+            DEBUG && console.log(`[WRITE] ${key} = ${value}`);
             res.end(RESPONSES.writeSuccess);
 
         } else {
