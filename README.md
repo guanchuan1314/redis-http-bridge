@@ -120,7 +120,7 @@ string ReadFromRedis(string key) {
 }
 ```
 
-**Note:** Add `http://localhost:3000` to the allowed URLs in MetaTrader: Tools > Options > Expert Advisors > "Allow WebRequest for listed URL".
+**Note:** Add `localhost` to the allowed URLs in MetaTrader: Tools > Options > Expert Advisors > "Allow WebRequest for listed URL".
 
 ## License
 
