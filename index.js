@@ -61,11 +61,13 @@ const server = http.createServer(async (req, res) => {
                     }
 
                     const value = await redisClient.get(key);
-                    
+
                     if (value === null) {
+                        console.log(`[READ] Key not found: ${key}`);
                         res.writeHead(404);
                         res.end(JSON.stringify({ error: 'Key not found' }));
                     } else {
+                        console.log(`[READ] ${key} = ${value}`);
                         res.writeHead(200);
                         res.end(JSON.stringify({ success: true, key, value }));
                     }
@@ -94,7 +96,8 @@ const server = http.createServer(async (req, res) => {
                     }
 
                     await redisClient.set(key, value);
-                    
+
+                    console.log(`[WRITE] ${key} = ${value}`);
                     res.writeHead(200);
                     res.end(JSON.stringify({ success: true, message: 'Data written successfully' }));
                 } catch (error) {
