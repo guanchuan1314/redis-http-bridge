@@ -47,9 +47,16 @@ node index.js 8080
 ```json
 {
   "key": "your_key",
-  "value": "your_value"
+  "value": "your_value",
+  "sync": true
 }
 ```
+
+| Parameter | Required | Default | Description |
+|-----------|----------|---------|-------------|
+| key | Yes | - | Redis key |
+| value | Yes | - | Value to store |
+| sync | No | true | `false` = fire-and-forget (faster, no confirmation) |
 
 Response:
 ```json
@@ -81,40 +88,26 @@ Response:
 ## MQL4/MQL5 Example
 
 ```mql5
-#include <Web/WebRequest.mqh>
-
 // Write to Redis
 string WriteToRedis(string key, string value) {
-    string url = "http://localhost:3000/write";
-    string headers = "Content-Type: application/json";
+    char post[], result[];
+    string resultHeaders;
     string body = "{\"key\":\"" + key + "\",\"value\":\"" + value + "\"}";
 
-    char post[];
-    char result[];
-    string resultHeaders;
-
-    StringToCharArray(body, post, 0, WHOLE_ARRAY, CP_UTF8);
-    ArrayResize(post, ArraySize(post) - 1);
-
-    int res = WebRequest("POST", url, headers, 5000, post, result, resultHeaders);
+    StringToCharArray(body, post, 0, StringLen(body), CP_UTF8);
+    WebRequest("POST", "http://localhost:3000/write", "Content-Type: application/json", 1000, post, result, resultHeaders);
 
     return CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
 }
 
 // Read from Redis
 string ReadFromRedis(string key) {
-    string url = "http://localhost:3000/read";
-    string headers = "Content-Type: application/json";
+    char post[], result[];
+    string resultHeaders;
     string body = "{\"key\":\"" + key + "\"}";
 
-    char post[];
-    char result[];
-    string resultHeaders;
-
-    StringToCharArray(body, post, 0, WHOLE_ARRAY, CP_UTF8);
-    ArrayResize(post, ArraySize(post) - 1);
-
-    int res = WebRequest("POST", url, headers, 5000, post, result, resultHeaders);
+    StringToCharArray(body, post, 0, StringLen(body), CP_UTF8);
+    WebRequest("POST", "http://localhost:3000/read", "Content-Type: application/json", 1000, post, result, resultHeaders);
 
     return CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
 }

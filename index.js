@@ -28,18 +28,31 @@ const CORS_HEADERS = {
 const redisClient = redis.createClient({
     socket: {
         host: process.env.REDIS_HOST || 'localhost',
-        port: parseInt(process.env.REDIS_PORT) || 6379
+        port: parseInt(process.env.REDIS_PORT) || 6379,
+        noDelay: true,
+        keepAlive: 5000,
+        reconnectStrategy: (retries) => {
+            if (retries > 100) {
+                console.error('Redis max retries reached');
+                return new Error('Max retries reached');
+            }
+            return Math.min(retries * 100, 3000);
+        }
     },
     password: process.env.REDIS_PASSWORD || undefined,
     database: parseInt(process.env.REDIS_DB) || 0
 });
 
 redisClient.on('error', (err) => {
-    console.error('Redis connection error:', err);
+    console.error('Redis error:', err.message);
 });
 
 redisClient.on('connect', () => {
     console.log('Connected to Redis');
+});
+
+redisClient.on('reconnecting', () => {
+    console.log('Reconnecting to Redis...');
 });
 
 redisClient.connect();
@@ -89,7 +102,7 @@ const server = http.createServer(async (req, res) => {
 
         } else if (pathname === '/write' && req.method === 'POST') {
             const body = await collectBody(req);
-            const { key, value } = JSON.parse(body);
+            const { key, value, sync = false } = JSON.parse(body);
 
             if (!key || !value) {
                 res.statusCode = 400;
@@ -97,7 +110,11 @@ const server = http.createServer(async (req, res) => {
                 return;
             }
 
-            await redisClient.set(key, value);
+            if (sync) {
+                await redisClient.set(key, value);
+            } else {
+                redisClient.set(key, value);
+            }
 
             DEBUG && console.log(`[WRITE] ${key} = ${value}`);
             res.end(RESPONSES.writeSuccess);
