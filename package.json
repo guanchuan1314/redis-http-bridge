@@ -7,7 +7,7 @@
     "start": "node index.js"
   },
   "author": "",
-  "license": "ISC",
+  "license": "CC0-1.0",
   "description": "A local HTTP server that bridges Redis for platforms without native Redis support (MQL4/MQL5, MetaTrader)",
   "dependencies": {
     "dotenv": "^17.2.3",

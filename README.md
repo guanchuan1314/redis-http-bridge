@@ -124,4 +124,4 @@ string ReadFromRedis(string key) {
 
 ## License
 
-ISC
+CC0 1.0 Universal - Public Domain Dedication
