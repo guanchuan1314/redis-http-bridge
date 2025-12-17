@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(move:*)",
+      "Bash(dir /b \"C:\\Users\\B760 AORUS ELITE AX\\Documents\\Projects\\update_forex_data\")"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

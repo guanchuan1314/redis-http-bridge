@@ -1,0 +1,16 @@
+{
+  "name": "redis-http-bridge",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node index.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "description": "A local HTTP server that bridges Redis for platforms without native Redis support (MQL4/MQL5, MetaTrader)",
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "redis": "^5.10.0"
+  }
+}
