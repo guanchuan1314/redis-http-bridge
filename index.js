@@ -4,6 +4,10 @@ require('dotenv').config();
 
 const DEBUG = process.env.DEBUG === 'true';
 
+// Track Redis connection state
+let isRedisConnected = false;
+let reconnectTimeout = null;
+
 // Pre-stringify static responses
 const RESPONSES = {
     missingKey: JSON.stringify({ error: 'Missing required parameter: key' }),
@@ -13,6 +17,7 @@ const RESPONSES = {
     readError: JSON.stringify({ error: 'Failed to read data' }),
     writeError: JSON.stringify({ error: 'Failed to write data' }),
     serverError: JSON.stringify({ error: 'Internal server error' }),
+    redisDisconnected: JSON.stringify({ error: 'Redis temporarily unavailable, retrying...' }),
     writeSuccess: JSON.stringify({ success: true, message: 'Data written successfully' })
 };
 
@@ -45,17 +50,52 @@ const redisClient = redis.createClient({
 
 redisClient.on('error', (err) => {
     console.error('Redis error:', err.message);
+    isRedisConnected = false;
 });
 
 redisClient.on('connect', () => {
     console.log('Connected to Redis');
+    isRedisConnected = true;
+});
+
+redisClient.on('ready', () => {
+    console.log('Redis ready');
+    isRedisConnected = true;
 });
 
 redisClient.on('reconnecting', () => {
     console.log('Reconnecting to Redis...');
+    isRedisConnected = false;
 });
 
-redisClient.connect();
+redisClient.on('end', () => {
+    console.log('Redis connection ended');
+    isRedisConnected = false;
+    attemptReconnect();
+});
+
+// Helper function to attempt reconnection
+async function attemptReconnect() {
+    if (reconnectTimeout) return;
+
+    reconnectTimeout = setTimeout(async () => {
+        reconnectTimeout = null;
+        if (!isRedisConnected) {
+            try {
+                console.log('Attempting to reconnect to Redis...');
+                await redisClient.connect();
+            } catch (err) {
+                console.error('Reconnection failed:', err.message);
+                attemptReconnect();
+            }
+        }
+    }, 2000);
+}
+
+redisClient.connect().catch(err => {
+    console.error('Initial Redis connection failed:', err.message);
+    attemptReconnect();
+});
 
 // Helper to collect request body
 function collectBody(req) {
@@ -89,15 +129,23 @@ const server = http.createServer(async (req, res) => {
                 return;
             }
 
-            const value = await redisClient.get(key);
+            try {
+                const value = await redisClient.get(key);
 
-            if (value === null) {
-                DEBUG && console.log(`[READ] Key not found: ${key}`);
-                res.statusCode = 404;
-                res.end(RESPONSES.keyNotFound);
-            } else {
-                DEBUG && console.log(`[READ] ${key} = ${value}`);
-                res.end(JSON.stringify({ success: true, key, value }));
+                if (value === null) {
+                    DEBUG && console.log(`[READ] Key not found: ${key}`);
+                    res.statusCode = 404;
+                    res.end(RESPONSES.keyNotFound);
+                } else {
+                    DEBUG && console.log(`[READ] ${key} = ${value}`);
+                    res.end(JSON.stringify({ success: true, key, value }));
+                }
+            } catch (redisError) {
+                console.error('Redis read error:', redisError.message);
+                isRedisConnected = false;
+                attemptReconnect();
+                res.statusCode = 503;
+                res.end(RESPONSES.redisDisconnected);
             }
 
         } else if (pathname === '/write' && req.method === 'POST') {
@@ -110,14 +158,26 @@ const server = http.createServer(async (req, res) => {
                 return;
             }
 
-            if (sync) {
-                await redisClient.set(key, value);
-            } else {
-                redisClient.set(key, value);
-            }
+            try {
+                if (sync) {
+                    await redisClient.set(key, value);
+                } else {
+                    redisClient.set(key, value).catch(err => {
+                        console.error('Async write error:', err.message);
+                        isRedisConnected = false;
+                        attemptReconnect();
+                    });
+                }
 
-            DEBUG && console.log(`[WRITE] ${key} = ${value}`);
-            res.end(RESPONSES.writeSuccess);
+                DEBUG && console.log(`[WRITE] ${key} = ${value}`);
+                res.end(RESPONSES.writeSuccess);
+            } catch (redisError) {
+                console.error('Redis write error:', redisError.message);
+                isRedisConnected = false;
+                attemptReconnect();
+                res.statusCode = 503;
+                res.end(RESPONSES.redisDisconnected);
+            }
 
         } else {
             res.statusCode = 404;
@@ -136,9 +196,42 @@ server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
 
+// Health check interval to ensure Redis connection
+setInterval(async () => {
+    if (!isRedisConnected) {
+        DEBUG && console.log('[HEALTH CHECK] Redis disconnected, attempting reconnect...');
+        attemptReconnect();
+    } else {
+        try {
+            await redisClient.ping();
+            DEBUG && console.log('[HEALTH CHECK] Redis connection healthy');
+        } catch (err) {
+            console.error('[HEALTH CHECK] Redis ping failed:', err.message);
+            isRedisConnected = false;
+            attemptReconnect();
+        }
+    }
+}, 30000); // Check every 30 seconds
+
 // Graceful shutdown
 process.on('SIGINT', async () => {
     console.log('Shutting down server...');
-    await redisClient.quit();
+    if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+    }
+    try {
+        await redisClient.quit();
+    } catch (err) {
+        console.error('Error during shutdown:', err.message);
+    }
     process.exit(0);
+});
+
+// Handle uncaught errors to prevent server crash
+process.on('uncaughtException', (err) => {
+    console.error('Uncaught exception:', err);
+});
+
+process.on('unhandledRejection', (err) => {
+    console.error('Unhandled rejection:', err);
 });
